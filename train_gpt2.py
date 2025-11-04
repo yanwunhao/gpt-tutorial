@@ -83,7 +83,7 @@ val_dataloader = DataLoader(
 def get_batch(dataloader, device):
     for x, y in dataloader:
         if device_type == "cuda":
-            x, y = x.to(device, non_block=True), y.to(device, non_block=True)
+            x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
         else:
             x, y = x.to(device), y.to(device)
 
@@ -105,10 +105,47 @@ wpe = nn.Embedding(config.block_size, config.n_embd).to(device)
 drop = nn.Dropout(config.dropout).to(device)
 ln_f = nn.LayerNorm(config.n_embd, bias=config.bias).to(device)
 
+
+class MLP(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
+        self.gelu = nn.GELU()
+        self.c_procj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
+        self.dropout = nn.Dropout(config.dropout)
+
+    def forward(self, x):
+        x = self.c_fc(x)
+        x = self.gelu(x)
+        x = self.c_procj(x)
+        x = self.dropout(x)
+        return x
+
+
+mlp = MLP(config).to(device)
+
+
 for x, y in get_batch(train_dataloader, device):
     print(x.shape, y.shape)
     x_embd = wte(x)
     print(x_embd.shape)
     x_embd_ln = ln_f(x_embd)
     print(x_embd_ln.shape)
+    x_mlp = mlp(x_embd_ln)
+    print(x_mlp.shape)
+
     break
+
+
+mask = torch.tril(torch.ones(4, 4)).view(1, 1, 4, 4)
+print("mask matric:")
+print(mask)
+
+q = k = v = torch.rand(1, 4, 10)
+att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+print("att score")
+print(att)
+
+mask_att = att.masked_fill(mask[:, :, :4, :4] == 0, float("-inf"))
+print("masked att")
+print(mask_att)
